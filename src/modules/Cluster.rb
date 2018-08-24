@@ -89,7 +89,7 @@ module Yast
       @transport = ""
 
       # example:
-      # [{:addr1=>"10.16.35.101",:addr2=>"192.168.0.1", :nodeid=>"1"}, 
+      # [{:addr1=>"10.16.35.101",:addr2=>"192.168.0.1", :nodeid=>"1"},
       # {:addr1=>"10.16.35.102",:addr2=>"192.168.0.2", :nodeid=>"2"},
       # {:addr1=>"10.16.35.103",:addr2=>"192.168.0.3" },
       # {:addr1=>"10.16.35.104",:nodeid=>"4" },
@@ -206,7 +206,7 @@ module Yast
           if @transport == "udpu"
             # BNC#871970, change member addresses to nodelist structure
             # memberaddr of udpu only read in interface0
-            # address is like "123.3.21.32;156.32.123.1:1 123.3.21.54;156.32.123.4:2 
+            # address is like "123.3.21.32;156.32.123.1:1 123.3.21.54;156.32.123.4:2
             # 123.3.21.44;156.32.123.9"
             address = SCR.Read(path(".openais.nodelist.node")).split(" ")
             address.each do |addr|
@@ -226,7 +226,7 @@ module Yast
                   @memberaddr.push({:addr1=>q[0]})
                 end
               end
-            end  # end address.each 
+            end  # end address.each
 
           else
             @mcastaddr1 = Convert.to_string(
@@ -287,7 +287,7 @@ module Yast
         if i[:addr2]
           address_string << ";#{i[:addr2]}"
           address_string << "-#{i[:nodeid]}" if i [:nodeid]
-        else 
+        else
           address_string << "-#{i[:nodeid]}" if i[:nodeid]
         end
         address_string << " "
@@ -324,7 +324,7 @@ module Yast
         SCR.Write(path(".openais.quorum.expected_votes"), @expected_votes)
       end
 
-      # BNC#871970, only write member address when interface0  
+      # BNC#871970, only write member address when interface0
       if @transport == "udpu"
 
         SCR.Write(
@@ -784,6 +784,20 @@ module Yast
     # @return [Hash] with 2 lists.
     def AutoPackages
       { "install" => ["csync2", "pacemaker"], "remove" => [] }
+    end
+
+    def service_widget
+      @service_widget ||= Yast2::ServiceWidget.new(service)
+    end
+
+    def service
+      @service ||= Yast2::SystemService.find("pacemaker")
+    end
+
+    def save_service
+      return true unless service
+
+      service.save
     end
 
     publish :variable => :csync2_key_file, :type => "string"

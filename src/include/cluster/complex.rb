@@ -67,13 +67,22 @@ module Yast
     end
 
     # Write settings dialog
-    # @return `abort if aborted and `next otherwise
+    #
+    # @return [Symbol] :abort if something went wrong
+    #                  :next otherwise
     def WriteDialog
-      Wizard.RestoreHelp(Ops.get_string(@HELPS, "write", ""))
-      # Cluster::SetAbortFunction(PollAbort);
-      ret = Cluster.Write
-      ret ? :next : :abort
+      help_text = @HELPS.fetch("write", "")
+
+      byebug
+
+      Wizard.RestoreHelp(help_text)
+      return :abort unless writte_settings
+
+      :next
     end
 
+    def writte_settings
+      Cluster.Write && Cluster.save_service
+    end
   end
 end

@@ -25,9 +25,11 @@
 # Authors:	Cong Meng <cmeng@novell.com>
 #
 # $Id: wizards.ycp 27914 2006-02-13 14:32:08Z locilka $
-require 'set'
+require "set"
 require "y2firewall/firewalld"
 require "yast2/systemd/socket"
+require "yast2/system_service"
+require "yast2/service_widget"
 
 module Yast
   module ClusterDialogsInclude
@@ -1003,35 +1005,16 @@ module Yast
       deep_copy(ret)
     end
 
-    def ValidateService
-      true
-    end
-
-    def UpdateServiceStatus
-      ret = 0
-      ret = Service.Status("pacemaker")
-      if ret == 0
-        UI.ChangeWidget(Id(:status), :Value, _("Running"))
+    def service_widget_content
+      if Cluster.service
+        Cluster.service_widget.content
       else
-        UI.ChangeWidget(Id(:status), :Value, _("Not running"))
+        Label(_("Sorry, pacemaker could not be found"))
       end
-      UI.ChangeWidget(Id("start_now"), :Enabled, ret != 0)
-      UI.ChangeWidget(Id("stop_now"), :Enabled, ret == 0)
-
-      if not Service.Enabled("pacemaker")
-        UI.ChangeWidget(Id("off"), :Value, true)
-        UI.ChangeWidget(Id("on"), :Value, false)
-      else
-        UI.ChangeWidget(Id("on"), :Value, true)
-        UI.ChangeWidget(Id("off"), :Value, false)
-      end
-
-      nil
     end
 
     def ServiceDialog
-      ret = nil
-
+      result = nil
 
       firewall_widget = CWMFirewallInterfaces.CreateOpenFirewallWidget(
         {
@@ -1045,58 +1028,9 @@ module Yast
       Builtins.y2milestone("%1", firewall_widget)
       firewall_layout = Ops.get_term(firewall_widget, "custom_widget", VBox())
 
-
       contents = VBox(
         VSpacing(1),
-        Frame(
-          _("Booting"),
-          RadioButtonGroup(
-            Id("bootcorosync"),
-            HBox(
-              HSpacing(1),
-              VBox(
-                Left(
-                  RadioButton(
-                    Id("on"),
-                    Opt(:notify),
-                    _("On -- Start pacemaker during boot")
-                  )
-                ),
-                Left(
-                  RadioButton(
-                    Id("off"),
-                    Opt(:notify),
-                    _("Off -- Start pacemaker manually")
-                  )
-                )
-              )
-            )
-          )
-        ),
-        VSpacing(1),
-        Frame(
-          _("Switch On and Off"),
-          Left(
-            VBox(
-              Left(
-                HBox(
-                  Label(_("Current Status: ")),
-                  Label(Id(:status), _("Running")),
-                  ReplacePoint(Id("status_rp"), Empty())
-                )
-              ),
-              Left(
-                HBox(
-                  HSpacing(1),
-                  HBox(
-                    PushButton(Id("start_now"), _("Start pacemaker Now")),
-                    PushButton(Id("stop_now"), _("Stop pacemaker Now"))
-                  )
-                )
-              )
-            )
-          )
-        ),
+        service_widget_content,
         VSpacing(1),
         firewall_layout,
         VStretch()
@@ -1108,78 +1042,51 @@ module Yast
       event = {}
       errormsg = "See 'journalctl -xn' for details."
       CWMFirewallInterfaces.OpenFirewallInit(firewall_widget, "")
+
       while true
-        UpdateServiceStatus()
         # add event
         event = UI.WaitForEvent
-        ret = Ops.get(event, "ID")
+        result = event["ID"]
 
-        if ret == "on"
-          Service.Enable("pacemaker")
-          next
+        return result if [:abort, :cancel].include?(result) && ReallyAbort()
+        next if [:abort, :cancel].include?(result)
+
+        Cluster.service_widget.store
+
+        if [:next, :back].include?(result)
+          CWMFirewallInterfaces.OpenFirewallStore(firewall_widget, "", event)
+          # Cluster.service_widget.store
+          break
         end
 
-        if ret == "off"
-          Service.Disable("pacemaker")
-          next
+        if result == :wizardTree
+          byebug
+          result = UI.QueryWidget(Id(:wizardTree), :CurrentItem).to_s
         end
 
-        # pacemaker will start corosync automatically.
-        # BNC#872651 is fixed, so stop pacemaker could stop corosync at the same time.
-        if ret == "start_now"
-          Cluster.save_csync2_conf
-          Cluster.SaveClusterConfig
-          # BNC#872651 , add more info about error message
-          Report.Error(Service.Error + errormsg) if !Service.Start("pacemaker")
-          next
+        if @DIALOG.include?(result)
+          result = result.to_sym
+          break
         end
 
-        if ret == "stop_now"
-          # BNC#874563,stop pacemaker could stop corosync since BNC#872651 is fixed
-          Report.Error(Service.Error + errormsg) if !Service.Stop("pacemaker")
-          next
-        end
-
-        if ret == :next || ret == :back
-          val = ValidateService()
-          if val == true
-            CWMFirewallInterfaces.OpenFirewallStore(firewall_widget, "", event)
-            break
-          else
-            ret = nil
-            next
-          end
-        end
-
-        if ret == :abort || ret == :cancel
-          if ReallyAbort()
-            return deep_copy(ret)
-          else
-            next
-          end
-        end
-
-        if ret == :wizardTree
-          ret = Convert.to_string(UI.QueryWidget(Id(:wizardTree), :CurrentItem))
-        end
-
-        if Builtins.contains(@DIALOG, Convert.to_string(ret))
-          ret = Builtins.symbolof(Builtins.toterm(ret))
-          val = ValidateService()
-          if val == true
-            break
-          else
-            ret = nil
-            Wizard.SelectTreeItem("service")
-            next
-          end
-        end
+        # if Builtins.contains(@DIALOG, Convert.to_string(ret))
+          # ret = Builtins.symbolof(Builtins.toterm(ret))
+          # val = ValidateService()
+          # if val == true
+            # break
+          # else
+            # ret = nil
+            # Wizard.SelectTreeItem("service")
+            # next
+          # end
+        # end
 
         CWMFirewallInterfaces.OpenFirewallHandle(firewall_widget, "", event)
 
-        Builtins.y2error("unexpected retcode: %1", ret)
+        Builtins.y2error("unexpected retcode: %1", result)
       end
-      deep_copy(ret)
+
+      result
     end
 
 
